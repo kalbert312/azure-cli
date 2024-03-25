@@ -23,7 +23,7 @@ from msrestazure.tools import is_valid_resource_id, parse_resource_id
 
 from azure.mgmt.resource.resources.models import GenericResource, DeploymentMode
 
-from azure.cli.core.azclierror import ArgumentUsageError, InvalidArgumentValueError, MutuallyExclusiveArgumentError, RequiredArgumentMissingError, ResourceNotFoundError
+from azure.cli.core.azclierror import ArgumentUsageError, InvalidArgumentValueError, RequiredArgumentMissingError, ResourceNotFoundError
 from azure.cli.core.parser import IncorrectUsageError
 from azure.cli.core.util import get_file_json, read_file_content, shell_safe_json_parse, sdk_no_wait
 from azure.cli.core.commands import LongRunningOperation
@@ -1279,16 +1279,11 @@ def _prepare_stacks_excluded_principals(deny_settings_excluded_principals):
     return excluded_principals_array
 
 
-def _prepare_stacks_delete_detach_models(rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources):
-    if action_on_unmanage is not None and (delete_all or delete_resource_groups or delete_resources):
-        raise MutuallyExclusiveArgumentError(
-            "The --action-on-unmanage/--aou argument and the --delete-* options cannot be used together.",
-            "Try to use the '--action-on-unmanage <value>' argument only.")
-
+def _prepare_stacks_delete_detach_models(rcf, action_on_unmanage):
     detach_model = rcf.deployment_stacks.models.DeploymentStacksDeleteDetachEnum.Detach
     delete_model = rcf.deployment_stacks.models.DeploymentStacksDeleteDetachEnum.Delete
 
-    aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = detach_model, detach_model, detach_model
+    aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = None, None, None
 
     if action_on_unmanage == StacksActionOnUnmanage.DETACH_ALL:
         aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = detach_model, detach_model, detach_model
@@ -1296,14 +1291,6 @@ def _prepare_stacks_delete_detach_models(rcf, action_on_unmanage, delete_all, de
         aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = delete_model, detach_model, detach_model
     elif action_on_unmanage == StacksActionOnUnmanage.DELETE_ALL:
         aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = delete_model, delete_model, delete_model
-
-    # The "delete_*" flags are deprecated in favor of "action_on_unmanage". The logic below will be removed later.
-    if delete_all:
-        aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = delete_model, delete_model, delete_model
-    if delete_resource_groups:
-        aou_resource_groups_action_enum = delete_model
-    if delete_resources:
-        aou_resources_action_enum = delete_model
 
     return aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum
 
@@ -2495,15 +2482,14 @@ def list_template_specs(cmd, resource_group_name=None, name=None):
 
 
 def create_deployment_stack_at_subscription(
-    cmd, name, location, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False, delete_resources=False,
-    deployment_resource_group=None, template_file=None, template_spec=None, template_uri=None, query_string=None, parameters=None,
-    description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
-    deny_settings_apply_to_child_scopes=False, tags=None, yes=False, no_wait=False
+    cmd, name, location, deny_settings_mode, action_on_unmanage, deployment_resource_group=None, template_file=None, template_spec=None,
+    template_uri=None, query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None,
+    deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, tags=None, yes=False, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
     deny_settings_enum = _prepare_stacks_deny_settings(rcf, deny_settings_mode)
 
     excluded_principals_array = _prepare_stacks_excluded_principals(deny_settings_excluded_principals)
@@ -2567,13 +2553,13 @@ def list_deployment_stack_at_subscription(cmd):
 
 
 def delete_deployment_stack_at_subscription(
-    cmd, action_on_unmanage=None, name=None, id=None, delete_resources=False, delete_resource_groups=False, delete_all=False, yes=False
+    cmd, action_on_unmanage, name=None, id=None, yes=False
 ):  # pylint: disable=redefined-builtin
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
     confirmation = "Are you sure you want to delete this stack"
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
 
     delete_list = []
     if aou_resources_action_enum == rcf.deployment_stacks.models.DeploymentStacksDeleteDetachEnum.Delete:
@@ -2626,15 +2612,14 @@ def export_template_deployment_stack_at_subscription(cmd, name=None, id=None):  
 
 
 def create_deployment_stack_at_resource_group(
-    cmd, name, resource_group, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False,
-    delete_resources=False, template_file=None, template_spec=None, template_uri=None, query_string=None, parameters=None, description=None,
-    deny_settings_excluded_principals=None, deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, yes=False,
-    tags=None, no_wait=False
+    cmd, name, resource_group, deny_settings_mode, action_on_unmanage, template_file=None, template_spec=None, template_uri=None,
+    query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
+    deny_settings_apply_to_child_scopes=False, yes=False, tags=None, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
     deny_settings_enum = _prepare_stacks_deny_settings(rcf, deny_settings_mode)
 
     excluded_principals_array = _prepare_stacks_excluded_principals(deny_settings_excluded_principals)
@@ -2695,14 +2680,13 @@ def list_deployment_stack_at_resource_group(cmd, resource_group):
 
 
 def delete_deployment_stack_at_resource_group(
-    cmd, action_on_unmanage=None, name=None, resource_group=None, id=None, delete_resources=False, delete_resource_groups=False,
-    delete_all=False, yes=False
+    cmd, action_on_unmanage, name=None, resource_group=None, id=None, yes=False
 ):  # pylint: disable=redefined-builtin
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
     confirmation = "Are you sure you want to delete this stack"
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
 
     delete_list = []
     if aou_resources_action_enum == rcf.deployment_stacks.models.DeploymentStacksDeleteDetachEnum.Delete:
@@ -2764,17 +2748,15 @@ def export_template_deployment_stack_at_resource_group(cmd, name=None, resource_
 
 
 def validate_deployment_stack_at_resource_group(
-    cmd, name, resource_group, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False,
-    delete_resources=False, template_file=None, template_spec=None, template_uri=None, query_string=None, parameters=None, description=None,
-    deny_settings_excluded_principals=None, deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, tags=None,
-    no_wait=False
+    cmd, name, resource_group, deny_settings_mode, action_on_unmanage, template_file=None, template_spec=None, template_uri=None,
+    query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
+    deny_settings_apply_to_child_scopes=False, tags=None, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     deployment_stack_model = _prepare_validate_stack_at_scope(
         rcf=rcf, deployment_scope='resourceGroup', cmd=cmd, deny_settings_mode=deny_settings_mode,
-        action_on_unmanage=action_on_unmanage, delete_all=delete_all, delete_resource_groups=delete_resource_groups,
-        delete_resources=delete_resources, template_file=template_file, template_spec=template_spec, template_uri=template_uri,
+        action_on_unmanage=action_on_unmanage, template_file=template_file, template_spec=template_spec, template_uri=template_uri,
         query_string=query_string, parameters=parameters, description=description,
         deny_settings_excluded_principals=deny_settings_excluded_principals, deny_settings_excluded_actions=deny_settings_excluded_actions,
         deny_settings_apply_to_child_scopes=deny_settings_apply_to_child_scopes, tags=tags)
@@ -2785,17 +2767,15 @@ def validate_deployment_stack_at_resource_group(
 
 
 def validate_deployment_stack_at_subscription(
-    cmd, name, location, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False,
-    delete_resources=False, deployment_resource_group=None, template_file=None, template_spec=None, template_uri=None, query_string=None,
-    parameters=None, description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
-    deny_settings_apply_to_child_scopes=False, tags=None, no_wait=False
+    cmd, name, location, deny_settings_mode, action_on_unmanage, deployment_resource_group=None, template_file=None, template_spec=None,
+    template_uri=None, query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None,
+    deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, tags=None, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     deployment_stack_model = _prepare_validate_stack_at_scope(
         rcf=rcf, deployment_scope='subscription', cmd=cmd, location=location, deny_settings_mode=deny_settings_mode,
-        action_on_unmanage=action_on_unmanage, delete_all=delete_all, delete_resource_groups=delete_resource_groups,
-        delete_resources=delete_resources, deployment_resource_group=deployment_resource_group, template_file=template_file,
+        action_on_unmanage=action_on_unmanage, deployment_resource_group=deployment_resource_group, template_file=template_file,
         template_spec=template_spec, template_uri=template_uri, query_string=query_string, parameters=parameters, description=description,
         deny_settings_excluded_principals=deny_settings_excluded_principals, deny_settings_excluded_actions=deny_settings_excluded_actions,
         deny_settings_apply_to_child_scopes=deny_settings_apply_to_child_scopes, tags=tags)
@@ -2805,17 +2785,15 @@ def validate_deployment_stack_at_subscription(
 
 
 def validate_deployment_stack_at_management_group(
-    cmd, management_group_id, name, location, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False,
-    delete_resources=False, deployment_subscription=None, template_file=None, template_spec=None, template_uri=None, query_string=None,
-    parameters=None, description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
-    deny_settings_apply_to_child_scopes=False, tags=None, no_wait=False
+    cmd, management_group_id, name, location, deny_settings_mode, action_on_unmanage, deployment_subscription=None, template_file=None,
+    template_spec=None, template_uri=None, query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None,
+    deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, tags=None, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     deployment_stack_model = _prepare_validate_stack_at_scope(
         rcf=rcf, deployment_scope='managementGroup', cmd=cmd, location=location, deny_settings_mode=deny_settings_mode,
-        action_on_unmanage=action_on_unmanage, delete_all=delete_all, delete_resource_groups=delete_resource_groups,
-        delete_resources=delete_resources, deployment_subscription=deployment_subscription, template_file=template_file,
+        action_on_unmanage=action_on_unmanage, deployment_subscription=deployment_subscription, template_file=template_file,
         template_spec=template_spec, template_uri=template_uri, query_string=query_string, parameters=parameters, description=description,
         deny_settings_excluded_principals=deny_settings_excluded_principals, deny_settings_excluded_actions=deny_settings_excluded_actions,
         deny_settings_apply_to_child_scopes=deny_settings_apply_to_child_scopes, tags=tags)
@@ -2826,13 +2804,13 @@ def validate_deployment_stack_at_management_group(
 
 
 def _prepare_validate_stack_at_scope(
-    rcf, deployment_scope, cmd, deny_settings_mode, action_on_unmanage=None, delete_all=False, delete_resource_groups=False,
-    delete_resources=False, location=None, deployment_subscription=None, deployment_resource_group=None, template_file=None,
-    template_spec=None, template_uri=None, query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None,
-    deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, tags=None
+    rcf, deployment_scope, cmd, deny_settings_mode, action_on_unmanage, location=None, deployment_subscription=None,
+    deployment_resource_group=None, template_file=None, template_spec=None, template_uri=None, query_string=None, parameters=None,
+    description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
+    deny_settings_apply_to_child_scopes=False, tags=None
 ):
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
     deny_settings_enum = _prepare_stacks_deny_settings(rcf, deny_settings_mode)
 
     excluded_principals_array = _prepare_stacks_excluded_principals(deny_settings_excluded_principals)
@@ -2874,15 +2852,14 @@ def _prepare_validate_stack_at_scope(
 
 
 def create_deployment_stack_at_management_group(
-    cmd, management_group_id, name, location, deny_settings_mode, action_on_unmanage=None, delete_all=None, delete_resources=False,
-    delete_resource_groups=False, deployment_subscription=None, template_file=None, template_spec=None, template_uri=None,
-    query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None, deny_settings_excluded_actions=None,
-    deny_settings_apply_to_child_scopes=False, yes=False, tags=None, no_wait=False
+    cmd, management_group_id, name, location, deny_settings_mode, action_on_unmanage, deployment_subscription=None, template_file=None,
+    template_spec=None, template_uri=None, query_string=None, parameters=None, description=None, deny_settings_excluded_principals=None,
+    deny_settings_excluded_actions=None, deny_settings_apply_to_child_scopes=False, yes=False, tags=None, no_wait=False
 ):
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
     deny_settings_enum = _prepare_stacks_deny_settings(rcf, deny_settings_mode)
 
     excluded_principals_array = _prepare_stacks_excluded_principals(deny_settings_excluded_principals)
@@ -2942,14 +2919,13 @@ def list_deployment_stack_at_management_group(cmd, management_group_id):
 
 
 def delete_deployment_stack_at_management_group(
-    cmd, management_group_id, action_on_unmanage=None, name=None, id=None, delete_resources=False, delete_resource_groups=False,
-    delete_all=False, yes=False
+    cmd, management_group_id, action_on_unmanage, name=None, id=None, yes=False
 ):  # pylint: disable=redefined-builtin
     rcf = _resource_deploymentstacks_client_factory(cmd.cli_ctx)
     confirmation = "Are you sure you want to delete this stack"
 
     aou_resources_action_enum, aou_resource_groups_action_enum, aou_management_groups_action_enum = _prepare_stacks_delete_detach_models(
-        rcf, action_on_unmanage, delete_all, delete_resource_groups, delete_resources)
+        rcf, action_on_unmanage)
 
     delete_list = []
     if aou_resources_action_enum == rcf.deployment_stacks.models.DeploymentStacksDeleteDetachEnum.Delete:
